@@ -48,7 +48,7 @@ bl_info = {
     "name": "Parede Cortina",
     "description": "Permite criar parede cortina.",
     "author": "André Meireles Barbosa",
-    "version": (1, 0, 1),
+    "version": (1, 0, 1, 1),
     "blender": (2, 83, 0),
     "location": "View3D > Sidebar > Add-on",
     # used for warning icon and text in addons panel
@@ -91,6 +91,13 @@ class Propriedades(bpy.types.PropertyGroup):
         description="Dimensão no eixo vertical",
         default=1,
         min=.55, soft_max=20,
+    )
+
+    espessura: bpy.props.FloatProperty(
+        name="Espessura",
+        description="Espessura do montante",
+        default=.15,
+        min=.05, soft_max=1,
     )
 
     horizontal: bpy.props.IntProperty(
@@ -140,12 +147,14 @@ class CORTINA_PT_MainPanel(bpy.types.Panel):
         row.prop(variavel, "horizontal")
         row.prop(variavel, "vertical")
 
+        layout.prop(variavel, "espessura")
+
 # ----------------------------------------------------------------------------
 # Exibir dimensões apenas no modo objeto
 # ----------------------------------------------------------------------------
 
         if not (variavel.selecao):
-            layout.label(text="Dimensões:")
+            layout.label(text="Dimensões da parede:")
             row = layout.row()
             row.prop(variavel, "largura")
             row.prop(variavel, "altura")
@@ -156,8 +165,21 @@ class CORTINA_PT_MainPanel(bpy.types.Panel):
 
         if not (variavel.selecao):
             layout.operator("cortina.criar_parede_cortina", icon="MESH_PLANE")
+            if (context.mode == 'EDIT_MESH'):
+                layout.label(
+                    text="Para ativar o botão, entre em modo objeto ou"
+                    f" marque a opção \"Usar face selecionada\"")
+            if not (variavel.nome and variavel.nome.strip()):
+                layout.label(text="Preencha o campo nome")
+
         else:
             layout.operator("cortina.criar_apartir_selecao", icon="SNAP_FACE")
+            if (context.mode == 'OBJECT'):
+                layout.label(
+                    text="Para ativar o botão, entre em modo de edição ou "
+                    f"desmarque a opção selecionada")
+            if not (variavel.nome and variavel.nome.strip()):
+                layout.label(text="Preencha o campo nome")
 
 # ----------------------------------------------------------------------------
 # Classe para botão no modo objeto
@@ -184,13 +206,48 @@ class CORTINA_OT_operator(bpy.types.Operator):
         scene = context.scene
         variavel = scene.variaveis
 
-        print(
-            f"A parede cortina de nome \"{variavel.nome}\" terá a dimensão"
-            f" de {round(variavel.largura, 2)}m"
-            f" x {round(variavel.altura, 2)}m. \n"
-            f"Terá {variavel.horizontal * variavel.vertical} painéis, na "
-            f"dimensão {round(variavel.largura / variavel.horizontal, 3)}m x"
-            f" {round(variavel.altura / variavel.vertical, 3)}m")
+        # vertices = [(x, y, z), (x, y, z)...]
+        vertices = [
+            (variavel.largura, variavel.espessura, 0.0),
+            (variavel.largura, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, variavel.espessura, 0.0),
+            (variavel.largura, variavel.espessura, variavel.altura),
+            (variavel.largura, 0.0, variavel.altura),
+            (0.0, 0.0, variavel.altura),
+            (0.0, variavel.espessura, variavel.altura)
+        ]
+        arestas = []
+
+        # ordem dos vertices define a normal da face criada
+        # sentido horario ==> normal apontará pra baixo, fundo e direita
+        # sentido anti-horário ==> normal apontará pra cima, frente e esquerda
+        faces = [
+            (0, 1, 2, 3),
+            (4, 7, 6, 5),
+            (0, 4, 5, 1),
+            (1, 5, 6, 2),
+            (2, 6, 7, 3),
+            (4, 0, 3, 7)
+        ]
+
+        nova_mesh = bpy.data.meshes.new("nova_mesh")
+        nova_mesh.from_pydata(vertices, arestas, faces)
+        nova_mesh.update()
+
+        novo_objeto = bpy.data.objects.new(variavel.nome, nova_mesh)
+
+        view_layer = bpy.context.view_layer
+        view_layer.active_layer_collection.collection.objects.link(novo_objeto)
+
+        # print(vertices)
+        # print(
+        #     f"A parede cortina de nome \"{variavel.nome}\" terá a dimensão"
+        #     f" de {round(variavel.largura, 2)}m"
+        #     f" x {round(variavel.altura, 2)}m. \n"
+        #     f"Terá {variavel.horizontal * variavel.vertical} painéis, na "
+        #     f"dimensão {round(variavel.largura / variavel.horizontal, 3)}m x"
+        #     f" {round(variavel.altura / variavel.vertical, 3)}m")
 
         return {'FINISHED'}
 
